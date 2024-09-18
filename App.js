@@ -8,7 +8,7 @@ import Home from './pages/Home';
 import SettingsScreen from './pages/Settings';
 import SupportScreen from './pages/Support';
 import LocationScreen from './pages/Location';
-import SOS from './pages/SOSpage';
+import SOS from './pages/Sospage';
 
 const Tab = createBottomTabNavigator();
 

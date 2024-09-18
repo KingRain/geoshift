@@ -1,37 +1,132 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import MapView, { Marker, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
+import { useFocusEffect } from '@react-navigation/native';
 
 const LocationScreen = () => {
-  const [region, setRegion] = useState(null); // State to hold the current region
+  const [region, setRegion] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [locationSubscription, setLocationSubscription] = useState(null);
+  const [expoPushToken, setExpoPushToken] = useState('');
 
-  // Geofenced locations array with lat, lng, and radius
   const geofencedLocations = [
-    { latitude: 37.78825, longitude: -122.4324, radius: 300 }, // Example geofence 1
-    { latitude: 37.79457, longitude: -122.4218, radius: 400 }, // Example geofence 2
+    { latitude: 9.755111, longitude: 76.650081, radius: 300 },
+    { latitude: 37.79457, longitude: -122.4218, radius: 400 },
   ];
 
-  // Request permission and get the user's location
-  useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync(); // Request location permission
-      if (status !== 'granted') {
-        setErrorMsg('Permission to access location was denied');
-        Alert.alert('Permission Denied', 'Allow location access in settings to use this feature.');
-        return;
-      }
+  // Request notifications permissions and get push token
+  const getPermissionsAndToken = async () => {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      Alert.alert('Permission Denied', 'Allow notifications in settings to use this feature.');
+      return;
+    }
+    const token = (await Notifications.getExpoPushTokenAsync()).data;
+    setExpoPushToken(token);
+  };
 
-      let location = await Location.getCurrentPositionAsync({}); // Get the current location
-      setRegion({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.0922,
-        longitudeDelta: 0.0421,
-      });
-    })();
+  useEffect(() => {
+    getPermissionsAndToken();
   }, []);
+
+  const startLocationTracking = async () => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      setErrorMsg('Permission to access location was denied');
+      Alert.alert('Permission Denied', 'Allow location access in settings to use this feature.');
+      return;
+    }
+
+    let location = await Location.getCurrentPositionAsync({});
+    setRegion({
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    });
+
+    const subscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 1000,
+        distanceInterval: 1,
+      },
+      (newLocation) => {
+        setRegion({
+          latitude: newLocation.coords.latitude,
+          longitude: newLocation.coords.longitude,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        });
+        // Check geofences and send notifications
+        checkGeofences(newLocation.coords);
+      }
+    );
+
+    setLocationSubscription(subscription);
+  };
+
+  const stopLocationTracking = () => {
+    if (locationSubscription) {
+      locationSubscription.remove();
+      setLocationSubscription(null);
+    }
+  };
+
+  const checkGeofences = (coords) => {
+    geofencedLocations.forEach((location, index) => {
+      const distance = getDistance(
+        { latitude: coords.latitude, longitude: coords.longitude },
+        { latitude: location.latitude, longitude: location.longitude }
+      );
+
+      if (distance < location.radius) {
+        sendNotification(`Entered Geofence ${index + 1}`, `You entered Geofence ${index + 1} at ${new Date().toLocaleTimeString()}`);
+      }
+    });
+  };
+
+  const getDistance = (point1, point2) => {
+    // Simple Haversine formula to calculate distance
+    const R = 6371e3; // Earth radius in meters
+    const φ1 = point1.latitude * Math.PI / 180;
+    const φ2 = point2.latitude * Math.PI / 180;
+    const Δφ = (point2.latitude - point1.latitude) * Math.PI / 180;
+    const Δλ = (point2.longitude - point1.longitude) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+  };
+
+  const sendNotification = async (title, body) => {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+      },
+      trigger: null, // Trigger immediately
+    });
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      startLocationTracking();
+      return () => {
+        stopLocationTracking();
+      };
+    }, [])
+  );
 
   if (!region) {
     return (
@@ -43,33 +138,28 @@ const LocationScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Display the map with the user's current location */}
       <MapView
         style={styles.map}
         region={region}
-        showsUserLocation={true} // Show the user's current location as a blue dot
-        onRegionChangeComplete={(region) => setRegion(region)} // Update region when map moves
+        showsUserLocation={true}
+        userLocationAnnotationTitle="You are here"
+        showsMyLocationButton={true}
+        onRegionChangeComplete={(region) => setRegion(region)}
       >
-        {/* Display geofenced areas as red markers */}
         {geofencedLocations.map((location, index) => (
-          <Marker
-            key={index}
-            coordinate={{ latitude: location.latitude, longitude: location.longitude }}
-            title={`Geofence ${index + 1}`}
-            description={`Radius: ${location.radius}m`}
-            pinColor="red" // Red marker
-          />
-        ))}
-
-        {/* Display geofenced areas as green circles */}
-        {geofencedLocations.map((location, index) => (
-          <Circle
-            key={index}
-            center={{ latitude: location.latitude, longitude: location.longitude }}
-            radius={location.radius} // Radius in meters
-            strokeColor="rgba(0, 255, 0, 0.5)" // Circle border color
-            fillColor="rgba(0, 255, 0, 0.2)"  // Circle fill color (semi-transparent green)
-          />
+          <React.Fragment key={index}>
+            <Circle
+              center={{ latitude: location.latitude, longitude: location.longitude }}
+              radius={location.radius}
+              strokeColor="rgba(0, 0, 0, 0.15)"
+              fillColor="rgba(0, 255, 39, 0.3)"
+            />
+            <Marker
+              coordinate={{ latitude: location.latitude, longitude: location.longitude }}
+              title={`Geofence ${index + 1}`}
+              description={`Radius: ${location.radius} meters`}
+            />
+          </React.Fragment>
         ))}
       </MapView>
     </View>
@@ -83,7 +173,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   map: {
-    ...StyleSheet.absoluteFillObject, // Make the map fill the screen
+    ...StyleSheet.absoluteFillObject,
   },
   loadingContainer: {
     flex: 1,
