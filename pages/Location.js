@@ -1,22 +1,30 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert, Platform } from 'react-native';
 import MapView, { Marker, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 const LocationScreen = () => {
   const [region, setRegion] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [locationSubscription, setLocationSubscription] = useState(null);
   const [expoPushToken, setExpoPushToken] = useState('');
+  const [enteredGeofences, setEnteredGeofences] = useState(new Set());
 
   const geofencedLocations = [
-    { latitude: 9.755111, longitude: 76.650081, radius: 300 },
+    { latitude: 9.755111, longitude: 76.650081, radius: 800 },
     { latitude: 37.79457, longitude: -122.4218, radius: 400 },
   ];
 
-  // Request notifications permissions and get push token
   const getPermissionsAndToken = async () => {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -30,10 +38,31 @@ const LocationScreen = () => {
     }
     const token = (await Notifications.getExpoPushTokenAsync()).data;
     setExpoPushToken(token);
+
+    if (Platform.OS === 'android') {
+      Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
+    }
   };
 
   useEffect(() => {
     getPermissionsAndToken();
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification Received:', notification);
+    });
+
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification Response:', response);
+    });
+
+    return () => {
+      notificationListener.remove();
+      responseListener.remove();
+    };
   }, []);
 
   const startLocationTracking = async () => {
@@ -87,14 +116,16 @@ const LocationScreen = () => {
         { latitude: location.latitude, longitude: location.longitude }
       );
 
-      if (distance < location.radius) {
-        sendNotification(`Entered Geofence ${index + 1}`, `You entered Geofence ${index + 1} at ${new Date().toLocaleTimeString()}`);
+      if (distance < location.radius && !enteredGeofences.has(index)) {
+        setEnteredGeofences(prev => new Set(prev).add(index));
+        const message = `You entered Geofence ${index + 1} at ${new Date().toLocaleTimeString()}`;
+        sendNotification(`Entered Geofence ${index + 1}`, message);
+        showAlert(`Entered Geofence ${index + 1}`, message); // In-app notification
       }
     });
   };
 
   const getDistance = (point1, point2) => {
-    // Simple Haversine formula to calculate distance
     const R = 6371e3; // Earth radius in meters
     const φ1 = point1.latitude * Math.PI / 180;
     const φ2 = point2.latitude * Math.PI / 180;
@@ -110,12 +141,21 @@ const LocationScreen = () => {
   };
 
   const sendNotification = async (title, body) => {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-      },
-      trigger: null, // Trigger immediately
+    if (expoPushToken) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: 'default',
+        },
+        trigger: null, // Trigger immediately
+      });
+    }
+  };
+
+  const showAlert = (title, message) => {
+    Alert.alert(title, message, [{ text: 'OK', onPress: () => console.log('OK Pressed') }], {
+      cancelable: true,
     });
   };
 
