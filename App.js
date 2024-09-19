@@ -35,7 +35,7 @@ export default function App() {
 
             return <Ionicons name={iconName} size={size} color={color} />;
           },
-          tabBarActiveTintColor: "orange",
+          tabBarActiveTintColor: "#ff4d00",
           tabBarInactiveTintColor: "white",
           tabBarShowLabel: false, // Hides tab label
           tabBarStyle: styles.tabBarStyle, // Custom style

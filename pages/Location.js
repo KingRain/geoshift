@@ -2,22 +2,11 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Alert, Platform } from 'react-native';
 import MapView, { Marker, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
 
 const LocationScreen = () => {
   const [region, setRegion] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
   const [locationSubscription, setLocationSubscription] = useState(null);
-  const [expoPushToken, setExpoPushToken] = useState('');
   const [isInside, setIsInside] = useState(false);
 
   const geofencedLocations = [
@@ -26,53 +15,16 @@ const LocationScreen = () => {
     { name: 'Warehouse 3', latitude: 9.798624026502015, longitude: 76.66186876567662, radius: 800 },
   ];
 
-  const getPermissionsAndToken = async () => {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== 'granted') {
-      Alert.alert('Permission Denied', 'Allow notifications in settings to use this feature.');
-      return;
-    }
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
-    setExpoPushToken(token);
-
-    if (Platform.OS === 'android') {
-      Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-      });
-    }
-  };
-
-  useEffect(() => {
-    getPermissionsAndToken();
-
-    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Notification Received:', notification);
-    });
-
-    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('Notification Response:', response);
-    });
-
-    return () => {
-      Notifications.removeNotificationSubscription(notificationListener);
-      Notifications.removeNotificationSubscription(responseListener);
-    };
-  }, []);
-
   const startLocationTracking = async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      setErrorMsg('Permission to access location was denied');
       Alert.alert('Permission Denied', 'Allow location access in settings to use this feature.');
       return;
+    }
+  
+    let { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+    if (backgroundStatus !== 'granted') {
+      Alert.alert('Permission Denied', 'Background location access is needed for tracking.');
     }
 
     let location = await Location.getCurrentPositionAsync({});
@@ -111,25 +63,14 @@ const LocationScreen = () => {
   };
 
   const checkGeofences = (coords) => {
-    let insideAnyGeofence = false;
-
-    geofencedLocations.forEach((location) => {
-      const distance = getDistance(
-        { latitude: coords.latitude, longitude: coords.longitude },
-        { latitude: location.latitude, longitude: location.longitude }
-      );
-
-      if (distance < location.radius) {
-        insideAnyGeofence = true;
-        if (!isInside) {
-          setIsInside(true);
-          const message = `You entered ${location.name} at ${new Date().toLocaleTimeString()}`;
-          sendNotification(`Entered ${location.name}`, message);
-        }
-      }
+    const insideAnyGeofence = geofencedLocations.some((location) => {
+      const distance = getDistance(coords, location);
+      return distance < location.radius;
     });
-
-    if (!insideAnyGeofence) {
+    
+    if (insideAnyGeofence && !isInside) {
+      setIsInside(true);
+    } else if (!insideAnyGeofence && isInside) {
       setIsInside(false);
     }
   };
@@ -149,23 +90,15 @@ const LocationScreen = () => {
     return R * c;
   };
 
-  const sendNotification = async (title, body) => {
-    if (expoPushToken) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body,
-          sound: 'default',
-        },
-        trigger: null, // Trigger immediately
-      });
-    }
-  };
-
   useFocusEffect(
     useCallback(() => {
       startLocationTracking();
+      const intervalId = setInterval(() => {
+        startLocationTracking();
+      }, 60000); // Refresh every 60 seconds
+
       return () => {
+        clearInterval(intervalId);
         stopLocationTracking();
       };
     }, [])
@@ -188,6 +121,7 @@ const LocationScreen = () => {
         userLocationAnnotationTitle="You are here"
         showsMyLocationButton={true}
         onRegionChangeComplete={(region) => setRegion(region)}
+        zIndex={1} // Ensure user location icon is above everything
       >
         {geofencedLocations.map((location, index) => (
           <React.Fragment key={index}>
@@ -196,11 +130,13 @@ const LocationScreen = () => {
               radius={location.radius}
               strokeColor="rgba(0, 0, 0, 0.15)"
               fillColor="rgba(0, 255, 39, 0.3)"
+              zIndex={0} // Ensure geofences are below user location icon
             />
             <Marker
               coordinate={{ latitude: location.latitude, longitude: location.longitude }}
               title={location.name}
               description={`Radius: ${location.radius} meters`}
+              zIndex={0} // Ensure markers are below user location icon
             >
               <View style={styles.marker}>
                 <Text style={styles.markerText}>{location.name}</Text>
@@ -232,6 +168,7 @@ const styles = StyleSheet.create({
     padding: 5,
     borderRadius: 5,
   },
+
   markerText: {
     fontSize: 12,
     fontWeight: 'bold',
