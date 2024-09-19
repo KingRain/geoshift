@@ -18,11 +18,12 @@ const LocationScreen = () => {
   const [errorMsg, setErrorMsg] = useState(null);
   const [locationSubscription, setLocationSubscription] = useState(null);
   const [expoPushToken, setExpoPushToken] = useState('');
-  const [enteredGeofences, setEnteredGeofences] = useState(new Set());
+  const [isInside, setIsInside] = useState(false);
 
   const geofencedLocations = [
-    { latitude: 9.755111, longitude: 76.650081, radius: 800 },
-    { latitude: 37.79457, longitude: -122.4218, radius: 400 },
+    { name: 'IIIT Kottayam', latitude: 9.755111, longitude: 76.650081, radius: 600 },
+    { name: 'Extraction Site 2', latitude: 9.77594203175121, longitude: 76.67252873827437, radius: 800 },
+    { name: 'Warehouse 3', latitude: 9.798624026502015, longitude: 76.66186876567662, radius: 800 },
   ];
 
   const getPermissionsAndToken = async () => {
@@ -51,6 +52,7 @@ const LocationScreen = () => {
 
   useEffect(() => {
     getPermissionsAndToken();
+
     const notificationListener = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification Received:', notification);
     });
@@ -60,8 +62,8 @@ const LocationScreen = () => {
     });
 
     return () => {
-      notificationListener.remove();
-      responseListener.remove();
+      Notifications.removeNotificationSubscription(notificationListener);
+      Notifications.removeNotificationSubscription(responseListener);
     };
   }, []);
 
@@ -94,7 +96,6 @@ const LocationScreen = () => {
           latitudeDelta: 0.0922,
           longitudeDelta: 0.0421,
         });
-        // Check geofences and send notifications
         checkGeofences(newLocation.coords);
       }
     );
@@ -110,19 +111,27 @@ const LocationScreen = () => {
   };
 
   const checkGeofences = (coords) => {
-    geofencedLocations.forEach((location, index) => {
+    let insideAnyGeofence = false;
+
+    geofencedLocations.forEach((location) => {
       const distance = getDistance(
         { latitude: coords.latitude, longitude: coords.longitude },
         { latitude: location.latitude, longitude: location.longitude }
       );
 
-      if (distance < location.radius && !enteredGeofences.has(index)) {
-        setEnteredGeofences(prev => new Set(prev).add(index));
-        const message = `You entered Geofence ${index + 1} at ${new Date().toLocaleTimeString()}`;
-        sendNotification(`Entered Geofence ${index + 1}`, message);
-        showAlert(`Entered Geofence ${index + 1}`, message); // In-app notification
+      if (distance < location.radius) {
+        insideAnyGeofence = true;
+        if (!isInside) {
+          setIsInside(true);
+          const message = `You entered ${location.name} at ${new Date().toLocaleTimeString()}`;
+          sendNotification(`Entered ${location.name}`, message);
+        }
       }
     });
+
+    if (!insideAnyGeofence) {
+      setIsInside(false);
+    }
   };
 
   const getDistance = (point1, point2) => {
@@ -151,12 +160,6 @@ const LocationScreen = () => {
         trigger: null, // Trigger immediately
       });
     }
-  };
-
-  const showAlert = (title, message) => {
-    Alert.alert(title, message, [{ text: 'OK', onPress: () => console.log('OK Pressed') }], {
-      cancelable: true,
-    });
   };
 
   useFocusEffect(
@@ -196,9 +199,13 @@ const LocationScreen = () => {
             />
             <Marker
               coordinate={{ latitude: location.latitude, longitude: location.longitude }}
-              title={`Geofence ${index + 1}`}
+              title={location.name}
               description={`Radius: ${location.radius} meters`}
-            />
+            >
+              <View style={styles.marker}>
+                <Text style={styles.markerText}>{location.name}</Text>
+              </View>
+            </Marker>
           </React.Fragment>
         ))}
       </MapView>
@@ -219,6 +226,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  marker: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    padding: 5,
+    borderRadius: 5,
+  },
+  markerText: {
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 
