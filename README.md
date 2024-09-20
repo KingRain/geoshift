@@ -1,4 +1,4 @@
-# 🚀 Transport Tracking App 📍
+# 🚀 GeoShift - A Transport Tracking App 📍
 
 This project is developed for **Smart India Hackathon 2024**, designed to track the movement of individuals transporting goods, monitor attendance, and handle shift management. The app also features geofencing capabilities that trigger notifications when a user enters or exits designated locations. 
 
