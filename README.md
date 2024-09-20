@@ -32,8 +32,8 @@ This project is part of the **Smart India Hackathon 2024** to provide an efficie
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo-name.git
-   cd your-repo-name
+   git clone https://github.com/KingRain/geoshift.git
+   cd geoshift
    ```
 2. Install the required dependencies:
    ```bash
